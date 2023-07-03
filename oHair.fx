@@ -17,6 +17,16 @@
 
 #define HAS_COLOR 1
 
+//--------------------------------------------------------------------------------------
+//
+//      Structured buffers with hair vertex info
+//      Accessors to allow changes to how they are accessed.
+//
+//--------------------------------------------------------------------------------------
+StructuredBuffer<float4> g_GuideHairVertexPositions;
+StructuredBuffer<float4> g_GuideHairVertexTangents;
+StructuredBuffer<float> g_HairThicknessCoeffs;
+StructuredBuffer<float2> g_HairStrandTexCd;
 // We might break this down further.
 cbuffer tressfxShadeParameters
 {
@@ -214,7 +224,23 @@ float g_Ratio;
 
 
 texture2D<float3> g_txHairColor;
-sampler g_samLinearWrap;
+
+SamplerState g_samLinearWrap
+{
+    // sampler state
+    Texture = <g_txHairColor>;
+    Filter = MIN_MAG_LINEAR_MIP_POINT;
+    AddressU = WRAP;
+    AddressV = WRAP;
+    AddressW = WRAP;
+
+    // sampler comparison state
+    ComparisonFunc = ALWAYS;
+
+    MinLOD = 0.00;
+    MaxLOD = 1000.00;
+};
+//sampler g_samLinearWrap;
 
 
 
@@ -253,16 +279,6 @@ float3 Safe_normalize(float3 vec)
     return len >= TRESSFX_FLOAT_EPSILON ? (vec * rcp(len)) : float3(0, 0, 0);
 }
 
-//--------------------------------------------------------------------------------------
-//
-//      Structured buffers with hair vertex info
-//      Accessors to allow changes to how they are accessed.
-//
-//--------------------------------------------------------------------------------------
-StructuredBuffer<float4> g_GuideHairVertexPositions;
-StructuredBuffer<float4> g_GuideHairVertexTangents;
-StructuredBuffer<float> g_HairThicknessCoeffs;
-StructuredBuffer<float2> g_HairStrandTexCd;
 
 inline float4 GetPosition(int index)
 {
@@ -467,8 +483,12 @@ VOID_RETURN ps_main(PS_INPUT_HAIR input) VOID_RETURN_SEMANTIC
             WriteFragmentAttributes(nNewFragmentAddress, nOldFragmentAddress, float4(input.Tangent.xyz * 0.5 + float3(0.5, 0.5, 0.5), alpha), input.strandColor.xyz, input.Position.z);
 
             RETURN_NOTHING
+}
 
-
+float4 wireframe_ps_main(PS_INPUT_HAIR input) : SV_Target
+{
+    // Return white color for wireframe lines
+    return float4(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 technique11 TressFX2
@@ -476,6 +496,6 @@ technique11 TressFX2
 	pass P0
 	{
         SetVertexShader(CompileShader(vs_5_0, VS_RenderHair_AA()));
-        SetPixelShader(CompileShader(ps_5_0, ps_main()));
+        SetPixelShader(CompileShader(ps_5_0, wireframe_ps_main()));
     }
 }
