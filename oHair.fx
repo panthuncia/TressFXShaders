@@ -349,6 +349,61 @@ TressFXVertex GetExpandedTressFXVert(uint vertexId, float3 eye, float2 winSize, 
 
 }
 
+//not sure what this actually is
+cbuffer constants12 : register(b12)
+{
+    float4x4 cb12_unknown_matrices[2];
+    float4x4 cb12ShadowViewproj;
+    float4x4 cb12_unknown_matrices1[7];
+    float4 cb12_unknown_pos;
+};
+
+TressFXVertex GetExpandedTressFXVertShadowSpace(uint vertexId, float3 eye, float2 winSize, float4x4 viewProj)
+{
+
+    // Access the current line segment
+    uint index = vertexId / 2; // vertexId is actually the indexed vertex id when indexed triangles are used
+
+    // Get updated positions and tangents from simulation result
+    float3 v = g_GuideHairVertexPositions[index].xyz-eye;
+    float3 t = g_GuideHairVertexTangents[index].xyz;
+
+    // Get hair strand thickness
+    float ratio = (g_bThinTip > 0) ? g_Ratio : 1.0;
+
+    // Calculate right and projected right vectors
+    float3 right = Safe_normalize(cross(t, Safe_normalize(v - eye)));
+    float2 proj_right = Safe_normalize(MatrixMult(cb12ShadowViewproj, float4(right, 0)).xy);
+
+    // g_bExpandPixels should be set to 0 at minimum from the CPU side; this would avoid the below test
+    float expandPixels = (g_bExpandPixels < 0) ? 0.0 : 0.71;
+
+    // Calculate the negative and positive offset screenspace positions
+    float4 hairEdgePositions[2]; // 0 is negative, 1 is positive
+    hairEdgePositions[0] = float4(v + -1.0 * right * ratio * g_FiberRadius, 1.0);
+    hairEdgePositions[1] = float4(v + 1.0 * right * ratio * g_FiberRadius, 1.0);
+    float4x4 viewProjMatrix = cb12ShadowViewproj;
+    viewProjMatrix._43 = 0;
+    hairEdgePositions[0] = mul(hairEdgePositions[0], viewProjMatrix); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[0]);
+    hairEdgePositions[1] = mul(hairEdgePositions[1], viewProjMatrix); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[1]);
+    //hairEdgePositions[0].z /= 100;
+    //hairEdgePositions[1].z /= 100;
+    //hairEdgePositions[0] = MatrixMult(viewProj, hairEdgePositions[0]);
+    //hairEdgePositions[1] = MatrixMult(viewProj, hairEdgePositions[1]);
+
+    // Write output data
+    TressFXVertex Output = (TressFXVertex) 0;
+    float fDirIndex = (vertexId & 0x01) ? -1.0 : 1.0;
+    Output.Position = ((vertexId & 0x01) ? hairEdgePositions[0] : hairEdgePositions[1]) + fDirIndex * float4(proj_right * expandPixels / winSize.y, 0.0f, 0.0f) * ((vertexId & 0x01) ? hairEdgePositions[0].w : hairEdgePositions[1].w);
+    Output.Tangent = float4(t, ratio);
+    Output.p0p1 = float4(hairEdgePositions[0].xy / max(hairEdgePositions[0].w, TRESSFX_FLOAT_EPSILON), hairEdgePositions[1].xy / max(hairEdgePositions[1].w, TRESSFX_FLOAT_EPSILON));
+    Output.strandColor = GetStrandColor(index);
+    //Output.PosCheck = MatrixMult(g_mView, float4(v,1));
+
+    return Output;
+
+}
+
 float3 ScreenToNDC(float3 vScreenPos, float4 viewport)
 {
     float2 xy = vScreenPos.xy;
@@ -441,6 +496,21 @@ PS_INPUT_HAIR VS_RenderHair_AA(uint vertexId : SV_VertexID)
     return Output;
 }
 
+PS_INPUT_HAIR VS_RenderHair_ShadowMap(uint vertexId : SV_VertexID)
+{
+    TressFXVertex tressfxVert =
+        GetExpandedTressFXVertShadowSpace(vertexId, g_vEye, g_vViewport.zw, g_mVP);
+
+    PS_INPUT_HAIR Output;
+
+    Output.Position = tressfxVert.Position;
+    Output.Tangent = tressfxVert.Tangent;
+    Output.p0p1 = tressfxVert.p0p1;
+    Output.strandColor = tressfxVert.strandColor;
+
+    return Output;
+}
+
 #if REAL_VOID
 #	define VOID_RETURN void
 #	define VOID_RETURN_SEMANTIC 
@@ -471,24 +541,18 @@ VOID_RETURN ps_main(PS_INPUT_HAIR input) VOID_RETURN_SEMANTIC
     float alpha = coverage * g_MatBaseColor.a;
 
     ASSERT(coverage >= 0)
-        if (alpha < 1.0 / 255.0)
-            RETURN_NOTHING
+    if (alpha < 1.0 / 255.0)
+        RETURN_NOTHING
 
-            int2   vScreenAddress = int2(input.Position.xy);
-            // Allocate a new fragment
-            int nNewFragmentAddress = AllocateFragment(vScreenAddress);
-            ASSERT(nNewFragmentAddress != FRAGMENT_LIST_NULL)
+    int2   vScreenAddress = int2(input.Position.xy);
+    // Allocate a new fragment
+    int nNewFragmentAddress = AllocateFragment(vScreenAddress);
+    ASSERT(nNewFragmentAddress != FRAGMENT_LIST_NULL)
 
-                int nOldFragmentAddress = MakeFragmentLink(vScreenAddress, nNewFragmentAddress);
-            WriteFragmentAttributes(nNewFragmentAddress, nOldFragmentAddress, float4(input.Tangent.xyz * 0.5 + float3(0.5, 0.5, 0.5), alpha), input.strandColor.xyz, input.Position.z);
+    int nOldFragmentAddress = MakeFragmentLink(vScreenAddress, nNewFragmentAddress);
+    WriteFragmentAttributes(nNewFragmentAddress, nOldFragmentAddress, float4(input.Tangent.xyz * 0.5 + float3(0.5, 0.5, 0.5), alpha), input.strandColor.xyz, input.Position.z);
 
-            RETURN_NOTHING
-}
-
-float4 wireframe_ps_main(PS_INPUT_HAIR input) : SV_Target
-{
-    // Return white color for wireframe lines
-    return float4(1.0f, 1.0f, 1.0f, 1.0f);
+    RETURN_NOTHING
 }
 
 technique11 TressFX2
@@ -496,6 +560,15 @@ technique11 TressFX2
 	pass P0
 	{
         SetVertexShader(CompileShader(vs_5_0, VS_RenderHair_AA()));
-        SetPixelShader(CompileShader(ps_5_0, wireframe_ps_main()));
+        SetPixelShader(CompileShader(ps_5_0, ps_main()));
+    }
+}
+
+technique11 DepthOnly
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_RenderHair_ShadowMap()));
+        SetPixelShader(NULL);
     }
 }
