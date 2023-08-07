@@ -352,12 +352,13 @@ TressFXVertex GetExpandedTressFXVert(uint vertexId, float3 eye, float2 winSize, 
 //not sure what this actually is
 cbuffer constants12 : register(b12)
 {
-    float4x4 cb12_unknown_matrices[2];
-    float4x4 cb12ShadowViewproj;
-    float4x4 cb12_unknown_matrices1[7];
+    row_major float4x4 cb12ShadowView;
+    row_major float4x4 cb12ShadowProj;
+    row_major float4x4 cb12ShadowViewProj;
+    row_major float4x4 cb12_unknown_matrices1[7];
     float4 cb12_unknown_pos;
 };
-
+float g_shadowZScale;
 TressFXVertex GetExpandedTressFXVertShadowSpace(uint vertexId, float3 eye, float2 winSize, float4x4 viewProj)
 {
 
@@ -365,15 +366,19 @@ TressFXVertex GetExpandedTressFXVertShadowSpace(uint vertexId, float3 eye, float
     uint index = vertexId / 2; // vertexId is actually the indexed vertex id when indexed triangles are used
 
     // Get updated positions and tangents from simulation result
-    float3 v = g_GuideHairVertexPositions[index].xyz-eye;
+    float3 v = g_GuideHairVertexPositions[index].xyz-cb12_unknown_pos.xyz;
     float3 t = g_GuideHairVertexTangents[index].xyz;
 
     // Get hair strand thickness
     float ratio = (g_bThinTip > 0) ? g_Ratio : 1.0;
 
     // Calculate right and projected right vectors
-    float3 right = Safe_normalize(cross(t, Safe_normalize(v - eye)));
-    float2 proj_right = Safe_normalize(MatrixMult(cb12ShadowViewproj, float4(right, 0)).xy);
+    float3 right = Safe_normalize(cross(t, Safe_normalize(v-cb12_unknown_pos.xyz)));
+    float4x4 shadowProj = cb12ShadowProj;
+    //shadowProj._34 = g_shadowZScale / shadowProj._34;
+    float4x4 shadowView = cb12ShadowView;
+    float4x4 shadowViewProj = mul(shadowProj,shadowView);
+    float2 proj_right = Safe_normalize(MatrixMult(shadowViewProj, float4(right, 0)).xy);
 
     // g_bExpandPixels should be set to 0 at minimum from the CPU side; this would avoid the below test
     float expandPixels = (g_bExpandPixels < 0) ? 0.0 : 0.71;
@@ -382,14 +387,13 @@ TressFXVertex GetExpandedTressFXVertShadowSpace(uint vertexId, float3 eye, float
     float4 hairEdgePositions[2]; // 0 is negative, 1 is positive
     hairEdgePositions[0] = float4(v + -1.0 * right * ratio * g_FiberRadius, 1.0);
     hairEdgePositions[1] = float4(v + 1.0 * right * ratio * g_FiberRadius, 1.0);
-    float4x4 viewProjMatrix = cb12ShadowViewproj;
-    viewProjMatrix._43 = 0;
-    hairEdgePositions[0] = mul(hairEdgePositions[0], viewProjMatrix); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[0]);
-    hairEdgePositions[1] = mul(hairEdgePositions[1], viewProjMatrix); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[1]);
-    //hairEdgePositions[0].z /= 100;
-    //hairEdgePositions[1].z /= 100;
-    //hairEdgePositions[0] = MatrixMult(viewProj, hairEdgePositions[0]);
-    //hairEdgePositions[1] = MatrixMult(viewProj, hairEdgePositions[1]);
+    hairEdgePositions[0] = mul(shadowViewProj, hairEdgePositions[0]); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[0]);
+    hairEdgePositions[1] = mul(shadowViewProj, hairEdgePositions[1]); //MatrixMult(cb12ShadowViewproj, hairEdgePositions[1]);
+    //float4 test = cb12ShadowViewproj._11_12_13_14 + cb12ShadowViewproj._21_22_23_24 + cb12ShadowViewproj._31_32_33_34 + cb12ShadowViewproj._41_42_43_44;
+    //hairEdgePositions[0].z = dot((v, 1.0), test);
+    //hairEdgePositions[1].z = dot((v, 1.0), test);
+    //hairEdgePositions[0].z = max(hairEdgePositions[0].z, 0);
+    //hairEdgePositions[1].z = max(hairEdgePositions[1].z, 0);
 
     // Write output data
     TressFXVertex Output = (TressFXVertex) 0;
@@ -496,7 +500,7 @@ PS_INPUT_HAIR VS_RenderHair_AA(uint vertexId : SV_VertexID)
     return Output;
 }
 
-PS_INPUT_HAIR VS_RenderHair_ShadowMap(uint vertexId : SV_VertexID)
+PS_INPUT_HAIR VS_RenderHair_ShadowMap(float3 position : POSITION, uint vertexId : SV_VertexID)
 {
     TressFXVertex tressfxVert =
         GetExpandedTressFXVertShadowSpace(vertexId, g_vEye, g_vViewport.zw, g_mVP);
