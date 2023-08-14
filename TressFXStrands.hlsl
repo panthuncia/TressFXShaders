@@ -2,7 +2,7 @@
 // Shader code related to hair strands in the graphics pipeline.
 //-------------------------------------------------------------------------------------
 //
-// Copyright (c) 2017 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2019 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -23,59 +23,7 @@
 // THE SOFTWARE.
 //
 
-// This is code decoration for our sample.  
-// Remove this and the EndHLSL at the end of this file 
-// to turn this into valid HLSL
-
-StartHLSL TressFXStrands
-
-#define TRESSFX_FLOAT_EPSILON 1e-7
-
-
-static const bool g_bExpandPixels = false;
-bool g_bThinTip;
-float g_Ratio;
-
-
-texture2D<float3> g_txHairColor;
-sampler g_samLinearWrap;
-
-
-
-//--------------------------------------------------------------------------------------
-//
-//     Controls whether you do mul(M,v) or mul(v,M)
-//     i.e., row major vs column major
-//
-//--------------------------------------------------------------------------------------
-float4 MatrixMult(float4x4 m, float4 v)
-{
-    return mul(m, v);
-}
-
-
-
-//--------------------------------------------------------------------------------------
-//
-//      Safe_normalize-float2
-//
-//--------------------------------------------------------------------------------------
-float2 Safe_normalize(float2 vec)
-{
-    float len = length(vec);
-    return len >= TRESSFX_FLOAT_EPSILON ? (vec * rcp(len)) : float2(0, 0);
-}
-
-//--------------------------------------------------------------------------------------
-//
-//      Safe_normalize-float3
-//
-//--------------------------------------------------------------------------------------
-float3 Safe_normalize(float3 vec)
-{
-    float len = length(vec);
-    return len >= TRESSFX_FLOAT_EPSILON ? (vec * rcp(len)) : float3(0, 0, 0);
-}
+#include "TressFXUtilities.hlsl"
 
 //--------------------------------------------------------------------------------------
 //
@@ -83,10 +31,15 @@ float3 Safe_normalize(float3 vec)
 //      Accessors to allow changes to how they are accessed.
 //
 //--------------------------------------------------------------------------------------
-StructuredBuffer<float4> g_GuideHairVertexPositions;
-StructuredBuffer<float4> g_GuideHairVertexTangents;
-StructuredBuffer<float> g_HairThicknessCoeffs;
-StructuredBuffer<float2> g_HairStrandTexCd;
+StructuredBuffer<float4> g_GuideHairVertexPositions : register(t0, space1);
+StructuredBuffer<float4> g_GuideHairVertexTangents : register(t1, space1);
+
+StructuredBuffer<float> g_HairThicknessCoeffs : register(t0, space0);
+StructuredBuffer<float2> g_HairStrandTexCd : register(t1, space0);
+Texture2D<float4> BaseAlbedoTexture : register(t2, space0);
+
+SamplerState      LinearWrapSampler : register(s0, space4);
+
 
 inline float4 GetPosition(int index)
 {
@@ -101,12 +54,21 @@ inline float GetThickness(int index)
     return g_HairThicknessCoeffs[index];
 }
 
-
-float3 GetStrandColor(int index)
+float3 GetStrandColor(int index, float fractionOfStrand)
 {
-    float2 texCd = g_HairStrandTexCd[(uint)index / (uint)g_NumVerticesPerStrand];
-    float3 color = g_txHairColor.SampleLevel(g_samLinearWrap, texCd, 0).xyz;// * g_MatBaseColor.xyz;
-    return (color);
+    float3 rootColor;
+    float3 tipColor;
+
+    float2 texCd = g_HairStrandTexCd[index / NumVerticesPerStrand].xy;
+    rootColor = BaseAlbedoTexture.SampleLevel(LinearWrapSampler, texCd, 0).rgb;
+    tipColor  = MatTipColor.rgb;
+
+    // Multiply with Base Material color
+    rootColor *= MatBaseColor.rgb;
+
+    // Update the color based on position along the strand (vertex level) and lerp between tip and root if within the tipPercentage requested
+    float rootRange = 1.f - TipPercentage;
+    return (fractionOfStrand > rootRange) ? lerp(rootColor, tipColor, fractionOfStrand) : rootColor;
 }
 
 struct TressFXVertex
@@ -114,7 +76,7 @@ struct TressFXVertex
     float4 Position;
     float4 Tangent;
     float4 p0p1;
-    float3 strandColor;
+    float4 StrandColor;
 };
 
 TressFXVertex GetExpandedTressFXVert(uint vertexId, float3 eye, float2 winSize, float4x4 viewProj)
@@ -122,25 +84,69 @@ TressFXVertex GetExpandedTressFXVert(uint vertexId, float3 eye, float2 winSize, 
 
     // Access the current line segment
     uint index = vertexId / 2;  // vertexId is actually the indexed vertex id when indexed triangles are used
-
                                 // Get updated positions and tangents from simulation result
     float3 v = g_GuideHairVertexPositions[index].xyz;
     float3 t = g_GuideHairVertexTangents[index].xyz;
 
     // Get hair strand thickness
-    float ratio = (g_bThinTip > 0) ? g_Ratio : 1.0;
+    uint indexInStrand = index % NumVerticesPerStrand;
+    float fractionOfStrand = (float)indexInStrand / (NumVerticesPerStrand - 1);
+    float ratio = (EnableThinTip > 0) ? lerp(1.0, FiberRatio, fractionOfStrand) : 1.0;  //need length of full strand vs the length of this point on the strand. 	
 
     // Calculate right and projected right vectors
     float3 right = Safe_normalize(cross(t, Safe_normalize(v - eye)));
     float2 proj_right = Safe_normalize(MatrixMult(viewProj, float4(right, 0)).xy);
 
-    // g_bExpandPixels should be set to 0 at minimum from the CPU side; this would avoid the below test
-    float expandPixels = (g_bExpandPixels < 0) ? 0.0 : 0.71;
+    // We always to to expand for faster hair AA, we may want to gauge making this adjustable
+    float expandPixels = 0.71;
 
     // Calculate the negative and positive offset screenspace positions
     float4 hairEdgePositions[2]; // 0 is negative, 1 is positive
-    hairEdgePositions[0] = float4(v + -1.0 * right * ratio * g_FiberRadius, 1.0);
-    hairEdgePositions[1] = float4(v + 1.0 * right * ratio * g_FiberRadius, 1.0);
+    hairEdgePositions[0] = float4(v + -1.0 * right * ratio * FiberRadius, 1.0);
+    hairEdgePositions[1] = float4(v + 1.0 * right * ratio * FiberRadius, 1.0);
+    hairEdgePositions[0] = MatrixMult(viewProj, hairEdgePositions[0]);
+    hairEdgePositions[1] = MatrixMult(viewProj, hairEdgePositions[1]);
+
+    // Gonna hi-jack Tangent.w (unused) and add a .w component to strand color to store a strand UV
+    float2 strandUV;
+    strandUV.x = (vertexId & 0x01) ? 0.f : 1.f;
+    strandUV.y = fractionOfStrand;
+
+    // Write output data
+    TressFXVertex Output = (TressFXVertex)0;
+    float fDirIndex = (vertexId & 0x01) ? -1.0 : 1.0;
+    Output.Position = ((vertexId & 0x01) ? hairEdgePositions[0] : hairEdgePositions[1]) + fDirIndex * float4(proj_right * expandPixels / winSize.y, 0.0f, 0.0f) * ((vertexId & 0x01) ? hairEdgePositions[0].w : hairEdgePositions[1].w);
+    Output.Tangent = float4(t, strandUV.x);
+    Output.p0p1 = float4(hairEdgePositions[0].xy / max(hairEdgePositions[0].w, TRESSFX_FLOAT_EPSILON), hairEdgePositions[1].xy / max(hairEdgePositions[1].w, TRESSFX_FLOAT_EPSILON));
+    Output.StrandColor = float4(GetStrandColor(index, fractionOfStrand), strandUV.y);
+    return Output;
+}
+
+TressFXVertex GetExpandedTressFXShadowVert(uint vertexId, float3 eye, float2 winSize, float4x4 viewProj)
+{
+
+    // Access the current line segment
+    uint index = vertexId / 2;  // vertexId is actually the indexed vertex id when indexed triangles are used
+                                // Get updated positions and tangents from simulation result
+    float3 v = g_GuideHairVertexPositions[index].xyz;
+    float3 t = g_GuideHairVertexTangents[index].xyz;
+
+    // Get hair strand thickness
+    uint indexInStrand = index % NumVerticesPerStrand;
+    float fractionOfStrand = (float)indexInStrand / (NumVerticesPerStrand - 1);
+    float ratio = (EnableThinTip > 0) ? lerp(1.0, FiberRatio, fractionOfStrand) : 1.0;  //need length of full strand vs the length of this point on the strand. 	
+
+    // Calculate right and projected right vectors
+    float3 right = Safe_normalize(cross(t, Safe_normalize(v - eye)));
+    float2 proj_right = Safe_normalize(MatrixMult(viewProj, float4(right, 0)).xy);
+
+    // We always to to expand for faster hair AA, we may want to gauge making this adjustable
+    float expandPixels = 1.f; // Disable for shadows 0.71;
+
+    // Calculate the negative and positive offset screenspace positions
+    float4 hairEdgePositions[2]; // 0 is negative, 1 is positive
+    hairEdgePositions[0] = float4(v + -1.0 * right * ratio * FiberRadius, 1.0);
+    hairEdgePositions[1] = float4(v + 1.0 * right * ratio * FiberRadius, 1.0);
     hairEdgePositions[0] = MatrixMult(viewProj, hairEdgePositions[0]);
     hairEdgePositions[1] = MatrixMult(viewProj, hairEdgePositions[1]);
 
@@ -148,14 +154,8 @@ TressFXVertex GetExpandedTressFXVert(uint vertexId, float3 eye, float2 winSize, 
     TressFXVertex Output = (TressFXVertex)0;
     float fDirIndex = (vertexId & 0x01) ? -1.0 : 1.0;
     Output.Position = ((vertexId & 0x01) ? hairEdgePositions[0] : hairEdgePositions[1]) + fDirIndex * float4(proj_right * expandPixels / winSize.y, 0.0f, 0.0f) * ((vertexId & 0x01) ? hairEdgePositions[0].w : hairEdgePositions[1].w);
-    Output.Tangent = float4(t, ratio);
-    Output.p0p1 = float4(hairEdgePositions[0].xy / max(hairEdgePositions[0].w, TRESSFX_FLOAT_EPSILON), hairEdgePositions[1].xy / max(hairEdgePositions[1].w, TRESSFX_FLOAT_EPSILON));
-    Output.strandColor = GetStrandColor(index);
-    //Output.PosCheck = MatrixMult(g_mView, float4(v,1));
-
     return Output;
-
 }
 
-EndHLSL
+// EndHLSL
 

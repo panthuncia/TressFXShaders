@@ -2,7 +2,7 @@
 // Shader code related to lighting and shadowing for TressFX
 //-------------------------------------------------------------------------------------
 //
-// Copyright (c) 2017 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2019 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -27,138 +27,78 @@
 // Remove this and the EndHLSL at the end of this file 
 // to turn this into valid HLSL
 
+// StartHLSL TressFXRendering
 #define AMD_PI 3.1415926
 #define AMD_e 2.71828183
 
 #define AMD_TRESSFX_KERNEL_SIZE 5
 
+#define AMD_TRESSFX_MAX_NUM_BONES 512
+#define AMD_TRESSFX_MAX_HAIR_GROUP_RENDER 16
+#define AMD_TRESSFX_DX12 0
+
 // We might break this down further.
-cbuffer tressfxShadeParameters
+// If you change this, you MUST also change TressFXRenderParams in TressFXConstantBuffers.h
+// Binding (0-1, 0) are in TressFXStrands.hlsl
+cbuffer TressFXParameters  : register(b3, space0)
 {
-    //float       g_FiberAlpha        ; // Is this redundant with g_MatBaseColor.a?
-    float       g_HairShadowAlpha   ;
-    float       g_FiberRadius       ;
-    float       g_FiberSpacing      ;
+    // General information
+    float       HairFiberRadius;
 
-    float4      g_MatBaseColor      ;
-    float4      g_MatKValue         ;
+    // For deep approximated shadow lookup
+    float       ShadowAlpha;
+    float       FiberSpacing;
 
-    float       g_fHairKs2          ;
-    float       g_fHairEx2          ;
-    int g_NumVerticesPerStrand      ;  
+    // For lighting/shading
+    float       HairKs2;
+    float       HairEx2;
+    float3      fPadding0;
 
-    //float padding_ 
+    float4      MatKValue;
+    
+    int         MaxShadowFibers;
+    int3        iPadding0;
 }
 
+// Separate strand params from pixel render params (so we can index for PPLL)
+// If you change this, you MUST also change TressFXStrandParams in TressFXConstantBuffers.h
+cbuffer TressFXStrandParameters  : register(b4, space0)
+{
+    float4      MatBaseColor;
+    float4      MatTipColor;
+
+    float       TipPercentage;
+    float       StrandUVTilingFactor;
+    float       FiberRatio;
+    float       FiberRadius;
+
+    int         NumVerticesPerStrand;
+    int         EnableThinTip;
+    int         NodePoolSize;
+    int         RenderParamsIndex;
+
+    // Other params
+    int         EnableStrandUV;
+    int         EnableStrandTangent;
+    int2        iPadding1;
+}
+
+// NOTE, we may have to split bindings to TressFXStrands and those to TressFXRendering when implementing PPLL
+Texture2D<float4> StrandAlbedoTexture : register(t5, space0);
 
 struct HairShadeParams
 {
-    float3 cColor;
-    float fRadius;
-    float fSpacing;
-    float fAlpha;
+    float3 Color;
+    float HairShadowAlpha;
+    float FiberRadius;
+    float FiberSpacing;
+    float Ka;
+    float Kd;
+    float Ks1;
+    float Ex1;
+    float Ks2;
+    float Ex2;
 };
-
-
-// fDepthDistanceWS is the world space distance between the point on the surface and the point in the shadow map.
-// fFiberSpacing is the assumed, average, world space distance between hair fibers.
-// fFiberRadius in the assumed average hair radius.
-// fHairAlpha is the alpha value for the hair (in terms of translucency, not coverage.)
-// Output is a number between 0 (totally shadowed) and 1 (lets everything through)
-float ComputeShadowAttenuation(float fDepthDistanceWS, float fFiberSpacing, float fFiberRadius, float fHairAlpha)
-{
-    float numFibers = fDepthDistanceWS / (fFiberSpacing*fFiberRadius);
-
-    // if occluded by hair, there is at least one fiber
-    [flatten]if (fDepthDistanceWS > 1e-5)
-        numFibers = max(numFibers, 1);
-    return pow(abs(1 - fHairAlpha), numFibers);
-}
-
-float ComputeShadowAttenuation(float fDepthDistanceWS, HairShadeParams params)
-{
-    return ComputeShadowAttenuation(fDepthDistanceWS, params.fSpacing, params.fRadius, params.fAlpha);
-}
-
-
-float ComputeHairShadowAttenuation(float fDepthDistanceWS, float fFiberSpacing, float fFiberRadius, float fHairAlpha)
-{
-    float numFibers =  fDepthDistanceWS/(fFiberSpacing*fFiberRadius);
-
-    fHairAlpha*=0.5;
-
-    // if occluded by hair, there is at least one fiber
-    [flatten]if (fDepthDistanceWS > 1e-5)
-        numFibers = max(numFibers,1);
-    return pow(abs(1-fHairAlpha), numFibers);	
-}
-
-
-float ComputeHairShadowAttenuation(float fDepthDistanceWS)
-{
-    return ComputeHairShadowAttenuation(fDepthDistanceWS, g_FiberRadius, g_FiberSpacing, g_HairShadowAlpha);
-}
-
-
-// Returns a float3 which is the scale for diffuse, spec term, and colored spec term.
-//
-// The diffuse term is from Kajiya.
-// 
-// The spec term is what Marschner calls "R", reflecting directly off the surface of the hair, 
-// taking the color of the light like a dielectric specular term.  This highlight is shifted 
-// towards the root of the hair.
-//
-// The colored spec term is caused by light passing through the hair, bouncing off the back, and 
-// coming back out.  It therefore picks up the color of the light.  
-// Marschner refers to this term as the "TRT" term.  This highlight is shifted towards the 
-// tip of the hair.
-//
-// vEyeDir, vLightDir and vTangentDir are all pointing out.
-// coneAngleRadians explained below.
-//
-// 
-// hair has a tiled-conical shape along its lenght.  Sort of like the following.
-// 
-// \    /
-//  \  /
-// \    /
-//  \  /  
-//
-// The angle of the cone is the last argument, in radians.  
-// It's typically in the range of 5 to 10 degrees
-float3 TressFX_ComputeDiffuseSpecFactors(float3 vEyeDir, float3 vLightDir, float3 vTangentDir, float coneAngleRadians = 10*AMD_PI/180 )
-{
-
-    // From old code.
-    float Kd = g_MatKValue.y;
-    float Ks1 = g_MatKValue.z;
-    float Ex1 = g_MatKValue.w;
-    float Ks2 = g_fHairKs2;
-    float Ex2 = g_fHairEx2;
-
-    // in Kajiya's model: diffuse component: sin(t, l)
-    float cosTL = (dot(vTangentDir, vLightDir));
-    float sinTL = sqrt(1 - cosTL*cosTL);
-    float diffuse = sinTL; // here sinTL is apparently larger than 0
-
-    float cosTRL = -cosTL;
-    float sinTRL = sinTL;
-    float cosTE = (dot(vTangentDir, vEyeDir));
-    float sinTE = sqrt(1 - cosTE*cosTE);
-
-    // primary highlight: reflected direction shift towards root (2 * coneAngleRadians)
-    float cosTRL_root = cosTRL * cos(2 * coneAngleRadians) - sinTRL * sin(2 * coneAngleRadians);
-    float sinTRL_root = sqrt(1 - cosTRL_root * cosTRL_root);
-    float specular_root = max(0, cosTRL_root * cosTE + sinTRL_root * sinTE);
-
-    // secondary highlight: reflected direction shifted toward tip (3*coneAngleRadians)
-    float cosTRL_tip = cosTRL*cos(-3 * coneAngleRadians) - sinTRL*sin(-3 * coneAngleRadians);
-    float sinTRL_tip = sqrt(1 - cosTRL_tip * cosTRL_tip);
-    float specular_tip = max(0, cosTRL_tip * cosTE + sinTRL_tip * sinTE);
-
-    return float3(Kd*diffuse, Ks1 * pow(specular_root, Ex1), Ks2 * pow(specular_tip, Ex2));
-}
-
 
 //--------------------------------------------------------------------------------------
 // ComputeCoverage
@@ -192,3 +132,6 @@ float ComputeCoverage(float2 p0, float2 p1, float2 pixelLoc, float2 winSize)
     // 1, if completely inside hair edge
     return (relDist + 1.f) * 0.5f;
 }
+
+// EndHLSL
+
