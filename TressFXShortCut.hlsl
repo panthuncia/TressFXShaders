@@ -26,7 +26,7 @@
 #include "TressFXRendering.hlsl"
 #include "TressFXStrands.hlsl"
 
-cbuffer viewConstants : register(b0, space2)
+cbuffer viewConstants : register(b0)
 {
     float4x4    g_mVP;
     float4      g_vEye;
@@ -73,7 +73,7 @@ PS_INPUT_HAIR RenderHairColorVS(uint vertexId : SV_VertexID)
     return Output;
 }
 
-RWTexture2DArray<uint> RWFragmentDepthsTexture : register(u0, space3);
+RWTexture2DArray<uint> RWFragmentDepthsTexture : register(u1);
 
 //////////////////////////////////////////////////////////////
 // Depth Alpha PS
@@ -144,7 +144,7 @@ VS_OUTPUT_SCREENQUAD FullScreenVS(uint vertexID : SV_VertexID)
 
 //////////////////////////////////////////////////////////////
 // Resolve Depth PS
-Texture2DArray<uint> FragmentDepthsTexture : register(t0, space0);
+Texture2DArray<uint> FragmentDepthsTexture : register(t0);
 
 // Second pass of ShortCut.
 // Full-screen pass that writes the farthest of the near depths for depth culling.
@@ -182,7 +182,7 @@ struct ShadeParams
     float		fPadding2;
 };
 
-cbuffer TressFXShadeParams  : register(b0, space5)
+cbuffer TressFXShadeParams  : register(b2)
 {
     ShadeParams HairParams[AMD_TRESSFX_MAX_HAIR_GROUP_RENDER];
 };
@@ -251,8 +251,8 @@ float4 HairColorPS(PS_INPUT_HAIR input) : SV_Target
     return float4(color * alpha, alpha);
 }
 
-Texture2D<float4> HaiColorTexture : register(t0, space0);
-Texture2D<float>  AccumInvAlpha : register(t1, space0);
+Texture2D<float4> HaiColorTexture : register(t0);
+Texture2D<float>  AccumInvAlpha : register(t1);
 
 // Fourth pass of ShortCut.
 // Full-screen pass that finalizes the weighted average, and blends using the accumulated 1-alpha product.

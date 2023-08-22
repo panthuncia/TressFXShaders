@@ -38,7 +38,7 @@ struct StandardVertex
     float4 normal;
 };
 
-cbuffer ConstBuffer_SDF : register(b3, space0)
+cbuffer ConstBuffer_SDF : register(b3)
 {
     //row_major float4x4 g_ModelTransformForHead;
     //row_major float4x4 g_ModelInvTransformForHead;
@@ -63,14 +63,14 @@ cbuffer ConstBuffer_SDF : register(b3, space0)
 //           2 -> 
 
 //Actually contains floats; make sure to use asfloat() when accessing. uint is used to allow atomics.
-RWStructuredBuffer<uint> g_SignedDistanceField : register(u1, space0);
-RWStructuredBuffer<float4> g_HairVertices : register(u0, space1);
-RWStructuredBuffer<float4> g_PrevHairVertices : register(u1, space1);
+RWStructuredBuffer<uint> g_SignedDistanceField : register(u1);
+RWStructuredBuffer<float4> g_HairVertices : register(u0);
+RWStructuredBuffer<float4> g_PrevHairVertices : register(u2);
 
 //Triangle input to SDF builder
 // [[vk::binding(0, 0)]] StructuredBuffer<StandardVertex> g_TrimeshVertices;
-StructuredBuffer<uint> g_TrimeshVertexIndices : register(t0, space0);
-RWStructuredBuffer<StandardVertex> collMeshVertexPositions : register(u2, space0);
+StructuredBuffer<uint> g_TrimeshVertexIndices : register(t0);
+RWStructuredBuffer<StandardVertex> collMeshVertexPositions : register(u3);
 
 //When building the SDF we want to find the lowest distance at each SDF cell. In order to allow multiple threads to write to the same
 //cells, it is necessary to use atomics. However, there is no support for atomics with 32-bit floats so we convert the float into unsigned int

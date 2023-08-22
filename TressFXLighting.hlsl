@@ -64,7 +64,7 @@ struct LightParams
     int     Padding2;
 };
 
-cbuffer LightConstants : register(b0, space3)
+cbuffer LightConstants : register(b1)
 {
     int			NumLights;
     int			UseDepthApproximation;
@@ -73,7 +73,7 @@ cbuffer LightConstants : register(b0, space3)
     LightParams LightData[AMD_TRESSFX_MAX_LIGHTS];
 };
 
-Texture2D<float> ShadowTexture : register(t1, space3);
+Texture2D<float> ShadowTexture : register(t1);
 
 // https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_lights_punctual/README.md#inner-and-outer-cone-angles
 float SpotAttenuation(float3 pointToLight, float3 spotDirection, float outerConeCos, float innerConeCos)
@@ -107,7 +107,7 @@ void GetLightParams(float3 WorldPosition, uint lightIndex, inout float3 LightVec
 {
     LightIntensity = LightData[lightIndex].LightIntensity;
 
-    // Spot and Directionals use the light direction directly
+    // Directionals use the light direction directly
     LightVector = LightData[lightIndex].LightDirWS;
     if (LightData[lightIndex].LightType == LightType_Directional)
         return;

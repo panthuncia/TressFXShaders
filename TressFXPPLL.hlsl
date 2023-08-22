@@ -32,7 +32,7 @@
 
 #define FRAGMENT_LIST_NULL 0xffffffff
 
-cbuffer viewConstants  : register(b0, space2)
+cbuffer viewConstants  : register(b0)
 {
     float4x4    g_mVP;
     float4      g_vEye;
@@ -73,9 +73,9 @@ struct PPLL_STRUCT
     uint    uNext;
 };
 
-RWTexture2D<uint> RWFragmentListHead : register(u0, space3);
-RWStructuredBuffer<PPLL_STRUCT> LinkedListUAV : register(u1, space3);
-RWStructuredBuffer<uint> LinkedListCounter : register(u2, space3);
+RWTexture2D<uint> RWFragmentListHead : register(u0);
+RWStructuredBuffer<PPLL_STRUCT> LinkedListUAV : register(u1);
+RWStructuredBuffer<uint> LinkedListCounter : register(u2);
 
 // Allocate a new fragment location in fragment color, depth, and link buffers
 int AllocateFragment(int2 vScreenAddress)
@@ -187,8 +187,8 @@ VS_OUTPUT_SCREENQUAD FullScreenVS(uint vertexID : SV_VertexID)
 #define KBUFFER_SIZE 8
 #define MAX_FRAGMENTS 512
 
-Texture2D<uint> FragmentListHead : register(t0, space0);
-StructuredBuffer<PPLL_STRUCT> LinkedListNodes : register(t1, space0);
+Texture2D<uint> FragmentListHead : register(t0);
+StructuredBuffer<PPLL_STRUCT> LinkedListNodes : register(t2);
 
 #define NODE_DATA(x) LinkedListNodes[x].data
 #define NODE_NEXT(x) LinkedListNodes[x].uNext
@@ -219,7 +219,7 @@ struct ShadeParams
     float		fPadding2;
 };
 
-cbuffer TressFXShadeParams  : register(b0, space1)
+cbuffer TressFXShadeParams  : register(b2)
 {
     ShadeParams HairParams[AMD_TRESSFX_MAX_HAIR_GROUP_RENDER];
 };

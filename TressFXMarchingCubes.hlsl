@@ -36,7 +36,7 @@ struct StandardVertex
     float4 normal;
 };
 
-cbuffer ConstBuffer_MC : register(b5, space0)
+cbuffer ConstBuffer_MC : register(b5)
 {
     // rendering
     float4x4 mMW;

@@ -31,14 +31,14 @@
 //      Accessors to allow changes to how they are accessed.
 //
 //--------------------------------------------------------------------------------------
-StructuredBuffer<float4> g_GuideHairVertexPositions : register(t0, space1);
-StructuredBuffer<float4> g_GuideHairVertexTangents : register(t1, space1);
+StructuredBuffer<float4> g_GuideHairVertexPositions : register(t0);
+StructuredBuffer<float4> g_GuideHairVertexTangents : register(t1);
 
-StructuredBuffer<float> g_HairThicknessCoeffs : register(t0, space0);
-StructuredBuffer<float2> g_HairStrandTexCd : register(t1, space0);
-Texture2D<float4> BaseAlbedoTexture : register(t2, space0);
+StructuredBuffer<float> g_HairThicknessCoeffs : register(t2);
+StructuredBuffer<float2> g_HairStrandTexCd : register(t3);
+Texture2D<float4> BaseAlbedoTexture : register(t4);
 
-SamplerState      LinearWrapSampler : register(s0, space4);
+SamplerState      LinearWrapSampler : register(s0);
 
 
 inline float4 GetPosition(int index)

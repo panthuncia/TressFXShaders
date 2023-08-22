@@ -25,7 +25,7 @@
 #define THREAD_GROUP_SIZE 64
 #endif
 
-[[vk::binding(3, 0)]] cbuffer ConstBufferCS_BoneMatrix : register(b3, space0)
+[[vk::binding(3, 0)]] cbuffer ConstBufferCS_BoneMatrix : register(b3)
 {
     float4 cColor;
     float4 vLightDir;
@@ -48,11 +48,11 @@ struct StandardVertex
 };
 
 // UAVs		
-RWStructuredBuffer<StandardVertex> bs_collMeshVertexPositions : register(u0, space0);
+RWStructuredBuffer<StandardVertex> bs_collMeshVertexPositions : register(u0);
 
 // SRVs
-StructuredBuffer<BoneSkinningData> bs_boneSkinningData : register(t1, space0);
-StructuredBuffer<StandardVertex> bs_initialVertexPositions : register(t2, space0);
+StructuredBuffer<BoneSkinningData> bs_boneSkinningData : register(t1);
+StructuredBuffer<StandardVertex> bs_initialVertexPositions : register(t2);
 
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
 void BoneSkinning(uint GIndex : SV_GroupIndex, uint3 GId : SV_GroupID, uint3 DTid : SV_DispatchThreadID)

@@ -49,7 +49,7 @@
 #define TRESSFX_COLLISION_CAPSULES 0
 
 //constants that change frame to frame
-cbuffer tressfxSimParameters : register( b13, space0 )
+cbuffer tressfxSimParameters : register( b13 )
 {
     float4 g_Wind;
     float4 g_Wind1;
@@ -174,24 +174,24 @@ struct StrandLevelData
 };
 
 // UAVs
-RWStructuredBuffer<float4> g_HairVertexPositions : register(u0, space1);
-RWStructuredBuffer<float4> g_HairVertexPositionsPrev : register(u1, space1);
-RWStructuredBuffer<float4> g_HairVertexPositionsPrevPrev : register(u2, space1);
-RWStructuredBuffer<float4> g_HairVertexTangents : register(u3, space1);
-RWStructuredBuffer<StrandLevelData> g_StrandLevelData : register(u4, space1);
+RWStructuredBuffer<float4> g_HairVertexPositions : register(u0);
+RWStructuredBuffer<float4> g_HairVertexPositionsPrev : register(u1);
+RWStructuredBuffer<float4> g_HairVertexPositionsPrevPrev : register(u2);
+RWStructuredBuffer<float4> g_HairVertexTangents : register(u3);
+RWStructuredBuffer<StrandLevelData> g_StrandLevelData : register(u4);
 
 #if USE_MESH_BASED_HAIR_TRANSFORM == 1
 RWStructuredBuffer<Transforms>  g_Transforms;
 #endif
 
 // SRVs
-StructuredBuffer<float4> g_InitialHairPositions : register(t4, space0);
-StructuredBuffer<float> g_HairRestLengthSRV : register(t5, space0);
-StructuredBuffer<float> g_HairStrandType : register(t6, space0);
-StructuredBuffer<float4> g_FollowHairRootOffset : register(t7, space0);
-StructuredBuffer<float4> g_MeshVertices : register(t10, space0);
-StructuredBuffer<float4> g_TransformedVerts : register(t11, space0);
-StructuredBuffer<BoneSkinningData> g_BoneSkinningData : register(t12, space0);
+StructuredBuffer<float4> g_InitialHairPositions : register(t4);
+StructuredBuffer<float> g_HairRestLengthSRV : register(t5);
+StructuredBuffer<float> g_HairStrandType : register(t6);
+StructuredBuffer<float4> g_FollowHairRootOffset : register(t7);
+StructuredBuffer<float4> g_MeshVertices : register(t10);
+StructuredBuffer<float4> g_TransformedVerts : register(t11);
+StructuredBuffer<BoneSkinningData> g_BoneSkinningData : register(t12);
 
 // If you change the value below, you must change it in TressFXAsset.h as well.
 #ifndef THREAD_GROUP_SIZE

@@ -26,7 +26,7 @@
 #include "TressFXRendering.hlsl"
 #include "TressFXStrands.hlsl"
 
-cbuffer shadowViewConstants : register(b0, space2)
+cbuffer shadowViewConstants : register(b0)
 {
     float4x4    g_mVP;
     float4      g_vEye;

@@ -40,7 +40,7 @@
 // We might break this down further.
 // If you change this, you MUST also change TressFXRenderParams in TressFXConstantBuffers.h
 // Binding (0-1, 0) are in TressFXStrands.hlsl
-cbuffer TressFXParameters  : register(b3, space0)
+cbuffer TressFXParameters  : register(b3)
 {
     // General information
     float       HairFiberRadius;
@@ -62,7 +62,7 @@ cbuffer TressFXParameters  : register(b3, space0)
 
 // Separate strand params from pixel render params (so we can index for PPLL)
 // If you change this, you MUST also change TressFXStrandParams in TressFXConstantBuffers.h
-cbuffer TressFXStrandParameters  : register(b4, space0)
+cbuffer TressFXStrandParameters  : register(b4)
 {
     float4      MatBaseColor;
     float4      MatTipColor;
@@ -84,7 +84,7 @@ cbuffer TressFXStrandParameters  : register(b4, space0)
 }
 
 // NOTE, we may have to split bindings to TressFXStrands and those to TressFXRendering when implementing PPLL
-Texture2D<float4> StrandAlbedoTexture : register(t5, space0);
+Texture2D<float4> StrandAlbedoTexture : register(t5);
 
 struct HairShadeParams
 {
